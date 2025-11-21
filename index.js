@@ -1,5 +1,5 @@
 /*
-  Chatbot de Transporte Progreso del Chocó - VERSIÓN MEJORADA CON COMPROBANTES
+  Chatbot de Transporte Progreso del Chocó - VERSIÓN OPTIMIZADA PARA SERVIDOR
 */
 
 require('dotenv').config();
@@ -21,11 +21,27 @@ if (!fs.existsSync(CARPETA_COMPROBANTES)) {
     fs.mkdirSync(CARPETA_COMPROBANTES);
 }
 
+// Configuración de email mejorada
 const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_HOST || 'gmail',
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
+    },
+    tls: {
+        rejectUnauthorized: false
+    }
+});
+
+// Verificar conexión de email
+transporter.verify(function(error, success) {
+    if (error) {
+        console.log('❌ Error configuración email:', error.message);
+    } else {
+        console.log('✅ Servidor de email listo');
     }
 });
 
@@ -285,8 +301,12 @@ async function manejarConfirmacionPago(message, user, media = null) {
     
     guardarVentas(ventas);
     
-    // ENVIAR CORREO DE CONFIRMACIÓN
-    await enviarCorreoConfirmacion(reserva, nombreComprobante);
+    // ENVIAR CORREO DE CONFIRMACIÓN (con manejo de errores)
+    try {
+        await enviarCorreoConfirmacion(reserva, nombreComprobante);
+    } catch (emailError) {
+        console.log('⚠️ Correo no enviado, pero reserva confirmada');
+    }
     
     const mensajeConfirmacion = `✅ *¡PAGO CONFIRMADO!*
 
@@ -297,8 +317,6 @@ Tu reserva para *${reserva.Destino}* está *CONFIRMADA*.
 📍 Punto de encuentro: Terminal de Transporte Progreso
 
 ${nombreComprobante ? '📎 *Comprobante recibido correctamente*' : ''}
-
-*Se ha enviado un correo de confirmación con los detalles de tu viaje.*
 
 ¡Gracias por preferirnos! 🚌✨`;
     
@@ -364,7 +382,7 @@ Email: transporteprogreso@gmail.com
 
         const mailOptions = {
             from: process.env.EMAIL_USER,
-            to: process.env.EMAIL_USER, // En producción, usar reserva.email si se solicita
+            to: process.env.EMAIL_USER,
             subject: asunto,
             text: cuerpoCorreo,
             attachments: adjuntos
@@ -375,6 +393,7 @@ Email: transporteprogreso@gmail.com
         
     } catch (error) {
         console.error('❌ Error enviando correo de confirmación:', error);
+        throw error;
     }
 }
 
@@ -394,12 +413,28 @@ function detectarIntencion(texto) {
     return null;
 }
 
-// ------------------------- WHATSAPP CLIENT -------------------------
+// ------------------------- WHATSAPP CLIENT OPTIMIZADO PARA SERVIDOR -------------------------
 const client = new Client({
-    authStrategy: new LocalAuth({ clientId: 'transporte-progreso' }),
+    authStrategy: new LocalAuth({
+        clientId: 'transporte-progreso',
+        dataPath: './.wwebjs_auth/'
+    }),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote'
+        ]
+    },
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     }
 });
 
@@ -411,6 +446,7 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
     console.log('✅ BOT CONECTADO - Transporte Progreso del Chocó');
     console.log('📎 Funcionalidad de comprobantes activada');
+    console.log('🚀 Bot listo para recibir mensajes');
 });
 
 client.on('authenticated', () => {
@@ -419,6 +455,10 @@ client.on('authenticated', () => {
 
 client.on('auth_failure', (msg) => {
     console.error('❌ Error de autenticación:', msg);
+});
+
+client.on('disconnected', (reason) => {
+    console.log('🔌 Bot desconectado:', reason);
 });
 
 // ------------------------- MANEJO DE MENSAJES MEJORADO Y COMPLETO -------------------------
@@ -515,54 +555,54 @@ client.on('message', async (message) => {
 
 // ------------------------- REPORTE DIARIO MEJORADO -------------------------
 async function enviarReporteDiario() {
-    if (!fs.existsSync(ARCHIVO_VENTAS)) return;
-    
-    const ventas = leerVentas();
-    if (ventas.length === 0) return;
-    
-    const total = ventas.reduce((acc, v) => acc + (v.Valor || 0), 0);
-    const confirmadas = ventas.filter(v => v.Estado === 'Pago confirmado').length;
-    const pendientes = ventas.filter(v => v.Estado === 'Pago pendiente').length;
-
-    let resumen = `📊 REPORTE DIARIO - Transporte Progreso del Chocó\n\n`;
-    resumen += `💰 Total: $${total.toLocaleString()}\n`;
-    resumen += `✅ Confirmadas: ${confirmadas}\n`;
-    resumen += `⏳ Pendientes: ${pendientes}\n`;
-    resumen += `📋 Total: ${ventas.length}\n\n`;
-    
-    ventas.forEach((v, i) => { 
-        resumen += `${i + 1}. ${v.Nombre} - ${v.Destino} - $${v.Valor} - ${v.Estado} ${v.Comprobante ? '📎' : ''}\n`; 
-    });
-
-    const adjuntos = [
-        { filename: ARCHIVO_VENTAS, path: `./${ARCHIVO_VENTAS}` }
-    ];
-
-    // Adjuntar comprobantes del día
-    const hoy = new Date().toISOString().split('T')[0];
-    const comprobantesHoy = ventas
-        .filter(v => v.Comprobante && v.FechaConfirmacion && v.FechaConfirmacion.includes(hoy))
-        .map(v => v.Comprobante);
-
-    for (const comp of comprobantesHoy) {
-        const rutaComprobante = path.join(CARPETA_COMPROBANTES, comp);
-        if (fs.existsSync(rutaComprobante)) {
-            adjuntos.push({
-                filename: comp,
-                path: rutaComprobante
-            });
-        }
-    }
-
-    const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: process.env.EMAIL_USER,
-        subject: `📈 Reporte diario - ${new Date().toLocaleDateString()}`,
-        text: resumen,
-        attachments: adjuntos
-    };
-
     try {
+        if (!fs.existsSync(ARCHIVO_VENTAS)) return;
+        
+        const ventas = leerVentas();
+        if (ventas.length === 0) return;
+        
+        const total = ventas.reduce((acc, v) => acc + (v.Valor || 0), 0);
+        const confirmadas = ventas.filter(v => v.Estado === 'Pago confirmado').length;
+        const pendientes = ventas.filter(v => v.Estado === 'Pago pendiente').length;
+
+        let resumen = `📊 REPORTE DIARIO - Transporte Progreso del Chocó\n\n`;
+        resumen += `💰 Total: $${total.toLocaleString()}\n`;
+        resumen += `✅ Confirmadas: ${confirmadas}\n`;
+        resumen += `⏳ Pendientes: ${pendientes}\n`;
+        resumen += `📋 Total: ${ventas.length}\n\n`;
+        
+        ventas.forEach((v, i) => { 
+            resumen += `${i + 1}. ${v.Nombre} - ${v.Destino} - $${v.Valor} - ${v.Estado} ${v.Comprobante ? '📎' : ''}\n`; 
+        });
+
+        const adjuntos = [
+            { filename: ARCHIVO_VENTAS, path: `./${ARCHIVO_VENTAS}` }
+        ];
+
+        // Adjuntar comprobantes del día
+        const hoy = new Date().toISOString().split('T')[0];
+        const comprobantesHoy = ventas
+            .filter(v => v.Comprobante && v.FechaConfirmacion && v.FechaConfirmacion.includes(hoy))
+            .map(v => v.Comprobante);
+
+        for (const comp of comprobantesHoy) {
+            const rutaComprobante = path.join(CARPETA_COMPROBANTES, comp);
+            if (fs.existsSync(rutaComprobante)) {
+                adjuntos.push({
+                    filename: comp,
+                    path: rutaComprobante
+                });
+            }
+        }
+
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: process.env.EMAIL_USER,
+            subject: `📈 Reporte diario - ${new Date().toLocaleDateString()}`,
+            text: resumen,
+            attachments: adjuntos
+        };
+
         await transporter.sendMail(mailOptions);
         console.log('✅ Reporte diario enviado con comprobantes');
         
@@ -584,9 +624,10 @@ cron.schedule(CRON_EXPR, () => {
 // ------------------------- INICIALIZACIÓN -------------------------
 client.initialize();
 
-console.log('🚀 Iniciando Bot Mejorado de Transporte Progreso del Chocó...');
+console.log('🚀 Iniciando Bot Optimizado de Transporte Progreso del Chocó...');
 console.log('📁 Carpeta comprobantes:', CARPETA_COMPROBANTES);
-console.log('📧 Confirmaciones automáticas: ACTIVADAS');
+console.log('📧 Servicio de email: Gmail');
+console.log('🖥️  Configurado para servidor: ✅');
 console.log('🚌 Todas las funcionalidades integradas: ✅');
 
 // Manejo graceful de cierre
