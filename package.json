@@ -1,0 +1,21 @@
+{
+  "name": "chatbot-whatsapp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.10",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.34.2",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,17 @@
+(
+echo node_modules/
+echo .session/
+echo comprobantes_pago/
+echo *.xlsx
+echo *.json
+echo .env
+echo .wwebjs_auth/
+echo auth_info/
+echo session/
+echo npm-debug.log*
+echo yarn-debug.log*
+echo yarn-error.log*
+echo .DS_Store
+echo thumbs.db
+echo .thumbsdb
+) > .gitignore
