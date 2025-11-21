@@ -39,7 +39,7 @@ const transporter = nodemailer.createTransport({
 // Verificar conexión de email
 transporter.verify(function(error, success) {
     if (error) {
-        console.log('❌ Error configuración email:', error.message);
+        console.log('❌ Error configuración email:', error);
     } else {
         console.log('✅ Servidor de email listo');
     }
@@ -429,7 +429,9 @@ const client = new Client({
             '--no-first-run',
             '--disable-gpu',
             '--single-process',
-            '--no-zygote'
+            '--no-zygote',
+            '--disable-web-security',
+            '--disable-features=site-per-process'
         ]
     },
     webVersionCache: {
@@ -459,6 +461,8 @@ client.on('auth_failure', (msg) => {
 
 client.on('disconnected', (reason) => {
     console.log('🔌 Bot desconectado:', reason);
+    console.log('🔄 Reiniciando...');
+    client.initialize();
 });
 
 // ------------------------- MANEJO DE MENSAJES MEJORADO Y COMPLETO -------------------------
@@ -624,10 +628,10 @@ cron.schedule(CRON_EXPR, () => {
 // ------------------------- INICIALIZACIÓN -------------------------
 client.initialize();
 
-console.log('🚀 Iniciando Bot Optimizado de Transporte Progreso del Chocó...');
+console.log('🚀 Iniciando Bot Optimizado para Servidor - Transporte Progreso del Chocó...');
 console.log('📁 Carpeta comprobantes:', CARPETA_COMPROBANTES);
 console.log('📧 Servicio de email: Gmail');
-console.log('🖥️  Configurado para servidor: ✅');
+console.log('🖥️  Configuración para servidor: ACTIVADA');
 console.log('🚌 Todas las funcionalidades integradas: ✅');
 
 // Manejo graceful de cierre
