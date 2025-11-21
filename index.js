@@ -1,6 +1,9 @@
 /*
   Chatbot de Transporte Progreso del Chocó - VERSIÓN BAILEYS PARA RAILWAY
 */
+// FIX para Railway: habilitar crypto antes de cargar Baileys
+const crypto = require("crypto");
+global.crypto = crypto.webcrypto || crypto;
 
 require('dotenv').config();
 const { default: makeWASocket, useMultiFileAuthState, delay } = require('@whiskeysockets/baileys');
