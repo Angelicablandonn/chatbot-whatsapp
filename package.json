@@ -8,7 +8,7 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.5.0",
+    "whatsapp-web.js": "^1.23.0",
     "qrcode-terminal": "^0.12.0",
     "nodemailer": "^6.9.7",
     "xlsx": "^0.18.5",
@@ -17,13 +17,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "keywords": [
-    "whatsapp",
-    "bot",
-    "transporte",
-    "chocó"
-  ],
-  "author": "Transporte Progreso",
-  "license": "MIT"
+  }
 }
