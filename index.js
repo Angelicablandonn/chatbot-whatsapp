@@ -1,10 +1,9 @@
 /*
-  Chatbot de Transporte Progreso del Chocó - VERSIÓN CON BAILEYS
+  Chatbot de Transporte Progreso del Chocó - VERSIÓN RAILWAY OPTIMIZADA
 */
 
 require('dotenv').config();
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const XLSX = require('xlsx');
 const nodemailer = require('nodemailer');
@@ -12,11 +11,11 @@ const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
 
-// ------------------------- CONFIG MEJORADA -------------------------
+// ------------------------- CONFIGURACIÓN -------------------------
 const ARCHIVO_VENTAS = 'ventas_diarias.xlsx';
 const CARPETA_COMPROBANTES = 'comprobantes_pago';
 
-// Crear carpeta de comprobantes si no existe
+// Crear carpetas necesarias
 if (!fs.existsSync(CARPETA_COMPROBANTES)) {
     fs.mkdirSync(CARPETA_COMPROBANTES);
 }
@@ -41,17 +40,32 @@ const rutas = {
     "medellín → quibdó": { tarifa: 120000, horarios: ["6:00 a.m.", "2:00 p.m."] },
 };
 
+// ------------------------- CLIENTE WHATSAPP OPTIMIZADO -------------------------
+const client = new Client({
+    authStrategy: new LocalAuth({
+        clientId: 'transporte-progreso-railway'
+    }),
+    puppeteer: {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote'
+        ]
+    },
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+    }
+});
+
 // ------------------------- MANEJO DE SESIONES -------------------------
 const usuarios = {};
-const SESSION_TIMEOUT_MS = 1000 * 60 * 60;
-
-function limpiarSesiones() {
-    const ahoraMs = Date.now();
-    for (const key of Object.keys(usuarios)) {
-        if (ahoraMs - usuarios[key].lastActivity > SESSION_TIMEOUT_MS) delete usuarios[key];
-    }
-}
-setInterval(limpiarSesiones, 1000 * 60 * 5);
 
 // ------------------------- FUNCIONES UTILITARIAS -------------------------
 function ahora() { return new Date().toLocaleString(); }
@@ -70,59 +84,82 @@ function guardarVentas(ventas) {
     XLSX.writeFile(wb, ARCHIVO_VENTAS);
 }
 
-function appendVenta(venta) {
-    const ventas = leerVentas();
-    ventas.push(venta);
-    guardarVentas(ventas);
-}
-
 // ------------------------- MANEJO DE MENSAJES -------------------------
-async function manejarMensaje(sock, message, user) {
-    const from = message.key.remoteJid;
-    const texto = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
+client.on('qr', (qr) => {
+    console.log('📱 ESCANEA ESTE CÓDIGO QR:');
+    qrcode.generate(qr, { small: true });
+});
 
-    if (!texto) return;
+client.on('ready', () => {
+    console.log('✅ BOT CONECTADO - Transporte Progreso del Chocó');
+    console.log('🚀 Bot listo para recibir mensajes');
+});
 
-    console.log(`📨 Mensaje de ${from}: ${texto}`);
+client.on('message', async (message) => {
+    try {
+        if (message.from.includes('@g.us')) return;
 
-    if (!usuarios[from]) {
-        usuarios[from] = { estado: 'menu', lastActivity: Date.now(), datos: {} };
+        const from = message.from;
+        const texto = message.body ? message.body.trim() : '';
+        
+        if (!texto) return;
+
+        console.log(`📨 Mensaje de ${from}: ${texto}`);
+
+        // Inicializar usuario si no existe
+        if (!usuarios[from]) {
+            usuarios[from] = { estado: 'menu' };
+        }
+
+        const user = usuarios[from];
+
+        // Manejar según el estado o comando
+        if (texto.toLowerCase().includes('hola')) {
+            await message.reply(getMenuPrincipal());
+        } else if (texto === '1') {
+            await message.reply(getTarifas());
+        } else if (texto === '2') {
+            await message.reply(getHorarios());
+        } else if (texto === '3') {
+            user.estado = 'reserva_nombre';
+            user.datos = {};
+            await message.reply('📝 *INICIANDO RESERVA*\n\nPor favor, escribe tu *nombre completo*:');
+        } else if (user.estado === 'reserva_nombre') {
+            user.datos.nombre = texto;
+            user.estado = 'reserva_documento';
+            await message.reply('📋 *Nombre registrado*\n\nAhora escribe tu *número de documento*:');
+        } else if (user.estado === 'reserva_documento') {
+            user.datos.documento = texto;
+            user.estado = 'menu';
+            
+            // Simular reserva
+            const venta = {
+                Fecha: ahora(),
+                Nombre: user.datos.nombre,
+                Documento: user.datos.documento,
+                Destino: "quibdó → medellín",
+                Horario: "6:00 a.m.",
+                Valor: 120000,
+                Estado: 'Pago pendiente'
+            };
+            
+            // Guardar en Excel
+            const ventas = leerVentas();
+            ventas.push(venta);
+            guardarVentas(ventas);
+            
+            await message.reply(`✅ *RESERVA REGISTRADA*\n\nNombre: ${user.datos.nombre}\nDocumento: ${user.datos.documento}\n\nPara confirmar realiza el pago y envía el comprobante.`);
+        } else {
+            await message.reply(getMenuPrincipal());
+        }
+
+    } catch (error) {
+        console.error('❌ Error:', error);
+        await message.reply('❌ Ocurrió un error. Por favor, intenta nuevamente.');
     }
-    
-    const usuario = usuarios[from];
-    usuario.lastActivity = Date.now();
+});
 
-    // Detectar intención
-    const intencion = detectarIntencion(texto);
-
-    switch (intencion) {
-        case 'saludo':
-            await sock.sendMessage(from, { text: getMenuPrincipal() });
-            break;
-        case 'tarifas':
-            await sock.sendMessage(from, { text: getTarifas() });
-            break;
-        case 'reserva':
-            usuario.estado = 'reserva_nombre';
-            usuario.datos = {};
-            await sock.sendMessage(from, { text: '📝 *INICIANDO RESERVA*\n\nPor favor, escribe tu *nombre completo*:' });
-            break;
-        default:
-            await sock.sendMessage(from, { text: getMenuPrincipal() });
-            break;
-    }
-}
-
-function detectarIntencion(texto) {
-    texto = texto.toLowerCase().trim();
-    
-    if (texto.match(/^(hola|hi|hey|buenas|buen día)/)) return 'saludo';
-    if (texto.match(/^(1|tarifa|precio|valor|cuanto|costos)/)) return 'tarifas';
-    if (texto.match(/^(3|reservar|reserva|viaje|boleto|tiquete)/)) return 'reserva';
-    
-    return 'saludo';
-}
-
+// ------------------------- FUNCIONES DE MENÚ -------------------------
 function getMenuPrincipal() {
     return `👋 ¡Bienvenido a *Transporte Progreso del Chocó*! 
 
@@ -146,56 +183,24 @@ function getTarifas() {
     return lista;
 }
 
-// ------------------------- CONEXIÓN WHATSAPP -------------------------
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-    
-    const sock = makeWASocket({
-        version: [2, 2413, 1],
-        printQRInTerminal: true,
-        auth: state,
-        browser: Browsers.ubuntu('Chrome')
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log('📱 ESCANEA ESTE CÓDIGO QR:');
-            qrcode.generate(qr, { small: true });
-        }
-
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('🔌 Conexión cerrada, reconectando...', lastDisconnect?.error);
-            if (shouldReconnect) {
-                connectToWhatsApp();
-            }
-        } else if (connection === 'open') {
-            console.log('✅ BOT CONECTADO - Transporte Progreso del Chocó');
-            console.log('🚀 Bot listo para recibir mensajes');
-        }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async (m) => {
-        const message = m.messages[0];
-        if (!message.key.fromMe && m.type === 'notify') {
-            await manejarMensaje(sock, message);
-        }
-    });
-
-    return sock;
+function getHorarios() {
+    let horarios = '🕒 *Horarios disponibles:*\n\n';
+    for (const [r, d] of Object.entries(rutas)) {
+        horarios += `• ${r.toUpperCase()}: ${d.horarios.join(', ')}\n`;
+    }
+    return horarios;
 }
 
 // ------------------------- INICIALIZACIÓN -------------------------
-console.log('🚀 Iniciando Bot con Baileys - Transporte Progreso del Chocó...');
-console.log('📧 Servicio de email: Gmail');
-console.log('🖥️  Configuración optimizada para servidor');
+console.log('🚀 Iniciando Bot Optimizado para Railway...');
+console.log('📧 Email configurado');
+console.log('📊 Sistema de reservas activo');
 
-connectToWhatsApp().catch(err => {
-    console.error('❌ Error al conectar:', err);
-    console.log('🔄 Reiniciando en 5 segundos...');
-    setTimeout(connectToWhatsApp, 5000);
+client.initialize();
+
+// Manejo de cierre
+process.on('SIGINT', async () => {
+    console.log('🛑 Cerrando bot...');
+    await client.destroy();
+    process.exit(0);
 });
